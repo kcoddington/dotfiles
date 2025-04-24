@@ -1,0 +1,87 @@
+---
+- name: setup dev environment on target
+  hosts: all
+  become: true
+
+  vars:
+    username: "example"
+
+  tasks:
+    - name: update to latest versions
+      ansible.builtin.apt:
+        name: '*'
+        state: latest
+
+    - name: install packages
+      ansible.builtin.apt:
+        state: present
+        name:
+          - software-properties-common
+          - curl
+          - ripgrep
+          - unzip
+          - pandoc
+          - tmux
+          - lsd
+          - htop
+          - podman
+          - gcc
+          - make
+
+    - name: add ppa repo
+      ansible.builtin.apt_repository:
+        repo: "ppa:neovim-ppa/stable"
+        state: present
+
+    - name: install neovim
+      ansible.builtin.apt:
+        state: present
+        name:
+          - neovim
+          - python3-neovim
+
+    - name: make sure fonts folder exists
+      ansible.builtin.file:
+        state: directory
+        recurse: true
+        path: "/home/{{ username }}/.local/share/fonts"
+
+    - name: Fira Code exists
+      ansible.builtin.stat:
+        path: "/home/{{ username }}/.local/share/fonts/FiraCodeNerdFont-Retina.ttf"
+      register: firacode_check
+
+    - name: Get Fira Code font pack
+      when: not firacode_file.stats.exists
+      ansible.builtin.unarchive:
+        src: "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/FiraCode.zip"
+        dest: "/home/{{ username }}/.local/share/fonts/"
+        remote_src: true
+
+    - name: check if starship installed
+      ansible.builtin.stat:
+        path: "/usr/local/bin/starship"
+      register: starship_check
+
+    - name: install starship
+      when: not starship.stat.exists
+      ansible.builtin.command:
+        cmd: "curl -sS https://starship.rs/install.sh | sh"
+
+    - name: add to shell dotfile if needed
+      ansible.builtin.shell: grep -c "" /home/{{ username }}/.bashrc || true
+      register: starship_dotfile_check
+
+    - name: check if dotfiles cloned yet
+      ansible.builtin.stat:
+        path: "/home/{{ username }}/dotfiles"
+      register: dotfiles_check
+
+    # git clone dotfiles
+    - name: git clone dotfiles
+      when: not dotfiles_check.stat.exists
+      ansible.builtin.git:
+        clone: "https://github.com/kcoddington/dotfiles.git"
+        dest: "/home/{{ username }}/"
+
+    # symlink dotfiles to .config and .bashrc/.zshrc
