@@ -4,41 +4,131 @@
   become: true
 
   vars:
-    username: "example"
+    username: "kevin"
+    arch: "{{ ansible_facts.architecture }}"
+    shell: "{{ 'zsh' if ansible_facts.os_family == 'macos' else 'bash' }}"
+    dnf_os_list: "{{ ['RedHat', 'Fedora', 'AlmaLinux', 'RockyLinux'] }}"
+    apt_os_list: "{{ ['Debian', 'Ubuntu'] }}"
 
   tasks:
-    - name: update to latest versions
-      ansible.builtin.apt:
-        name: '*'
-        state: latest
-
-    - name: install packages
-      ansible.builtin.apt:
+    - name: create user if not exists
+      ansible.builtin.user:
+        name: "{{ username }}"
         state: present
-        name:
-          - software-properties-common
-          - curl
-          - ripgrep
-          - unzip
-          - pandoc
-          - tmux
-          - lsd
-          - htop
-          - podman
-          - gcc
-          - make
+        create_home: true
+        home: "/home/{{ username }}"
+        shell: "/bin/{{ shell }}"
 
-    - name: add ppa repo
-      ansible.builtin.apt_repository:
-        repo: "ppa:neovim-ppa/stable"
+    - name: touch sudoers.d user file
+      ansible.builtin.file:
+        path: "/etc/sudoers.d/{{ username }}"
+        state: touch
+
+    - name: add user to sudoers
+      ansible.builtin.lineinfile:
+        path: "/etc/sudoers.d/{{ username }}"
+        line: "{{ username }} ALL=(ALL) NOPASSWD:ALL"
         state: present
 
-    - name: install neovim
-      ansible.builtin.apt:
-        state: present
-        name:
-          - neovim
-          - python3-neovim
+    - name: touch .bashrc file
+      when: ansible_facts.os_family != 'macos'
+      ansible.builtin.file:
+        path: "/home/{{ username }}/.bashrc"
+        state: touch
+
+    - name: touch .zshrc file
+      when: ansible_facts.os_family == 'macos'
+      ansible.builtin.file:
+        path: "/home/{{ username }}/.zshrc"
+        state: touch
+
+    - name: register architecture
+      ansible.builtin.set_fact:
+        architecture: "{{ 'arm64' if arch in ['aarch64', 'arm64'] else arch }}"
+
+    - name: set os type
+      ansible.builtin.set_fact:
+        os: "{{ 'linux' if ansible_facts.os_family in \
+          ['Debian', 'RedHat', 'Fedora', 'ArchLinux', 'Gentoo', 'AlmaLinux', 'RockyLinux', 'Ubuntu'] \
+          else 'mac' }}"
+
+    - block:
+      - name: update to latest versions
+        when: ansible_facts.os_family in apt_os_list
+        ansible.builtin.apt:
+          name: '*'
+          state: latest
+      - name: update to latest versions
+        when: ansible_facts.os_family in dnf_os_list
+        ansible.builtin.dnf:
+          name: '*'
+          state: latest
+
+    - block:
+      - name: install packages
+        when: ansible_facts.os_family in apt_os_list
+        ansible.builtin.apt:
+          state: present
+          name:
+            - software-properties-common
+            - curl
+            - ripgrep
+            - unzip
+            - pandoc
+            - tmux
+            - lsd
+            - htop
+            - podman
+            - gcc
+            - make
+            - vim
+            - git
+
+      - name: enable epel if needed
+        when: ansible_facts.os_family in dnf_os_list
+        ansible.builtin.dnf:
+          name: epel-release
+          state: present
+
+      - name: install packages
+        when: ansible_facts.os_family in dnf_os_list
+        ansible.builtin.dnf:
+          state: present
+          name:
+            - curl
+            - ripgrep
+            - unzip
+            - pandoc
+            - tmux
+            - htop
+            - podman
+            - gcc
+            - make
+            - vim
+            - git
+
+    - name: neovim check
+      ansible.builtin.stat:
+        path: "/opt/nvim-{{ os }}-{{ architecture }}/bin"
+      register: neovim_check
+
+    - name: touch neovim folder
+      ansible.builtin.file:
+        path: "/opt/nvim-{{ os }}-{{ architecture }}/"
+        state: directory
+
+    - name: get neovim
+      when: not neovim_check.stat.exists
+      ansible.builtin.unarchive:
+        src: "https://github.com/neovim/neovim/releases/latest/download/nvim-{{ os }}-{{ architecture }}.tar.gz"
+        dest: "/opt/"
+        remote_src: true
+
+    - name: symlink neovim binary
+      ansible.builtin.file:
+        src: "/opt/nvim-{{ os }}-{{ architecture }}/bin/nvim"
+        dest: "/usr/bin/nvim"
+        state: link
 
     - name: make sure fonts folder exists
       ansible.builtin.file:
@@ -52,7 +142,7 @@
       register: firacode_check
 
     - name: Get Fira Code font pack
-      when: not firacode_file.stats.exists
+      when: not firacode_check.stat.exists
       ansible.builtin.unarchive:
         src: "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/FiraCode.zip"
         dest: "/home/{{ username }}/.local/share/fonts/"
@@ -63,14 +153,27 @@
         path: "/usr/local/bin/starship"
       register: starship_check
 
-    - name: install starship
-      when: not starship.stat.exists
+    - name: download starship install script
+      when: not starship_check.stat.exists
+      ansible.builtin.get_url:
+        url: https://starship.rs/install.sh
+        dest: /tmp/starship-install.sh
+        mode: '0755'
+
+    - name: run starship install script
+      when: not starship_check.stat.exists
       ansible.builtin.command:
-        cmd: "curl -sS https://starship.rs/install.sh | sh"
+        cmd: "/tmp/starship-install.sh -y -b /usr/bin"
 
     - name: add to shell dotfile if needed
-      ansible.builtin.shell: grep -c "" /home/{{ username }}/.bashrc || true
+      ansible.builtin.shell: grep -c "starship init {{ shell }}" /home/{{ username }}/.{{ shell }}rc || true
       register: starship_dotfile_check
+
+    - name: add starship to dotfile
+      when: not starship_dotfile_check.rc
+      ansible.builtin.lineinfile:
+        path: "/home/{{ username }}/.{{ shell }}rc"
+        line: "eval \"$(starship init {{ shell }})\""
 
     - name: check if dotfiles cloned yet
       ansible.builtin.stat:
@@ -81,7 +184,36 @@
     - name: git clone dotfiles
       when: not dotfiles_check.stat.exists
       ansible.builtin.git:
-        clone: "https://github.com/kcoddington/dotfiles.git"
-        dest: "/home/{{ username }}/"
+        repo: "https://github.com/kcoddington/dotfiles.git"
+        dest: "/home/{{ username }}/dotfiles"
+
+    # touch .config folder
+    - name: touch .config folder
+      ansible.builtin.file:
+        path: "/home/{{ username }}/.config"
+        state: directory
+
+    - name: chown home directory to user
+      ansible.builtin.file:
+        path: "/home/{{ username }}"
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        recurse: true
 
     # symlink dotfiles to .config and .bashrc/.zshrc
+    - name: symlink neovim config
+      ansible.builtin.file:
+        src: "/home/{{ username }}/dotfiles/nvim"
+        dest: "/home/{{ username }}/.config/nvim"
+        state: link
+        owner: "{{ username }}"
+        group: "{{ username }}"
+ 
+    # symlink dotfiles to .config and .bashrc/.zshrc
+    - name: symlink starship config
+      ansible.builtin.file:
+        src: "/home/{{ username }}/dotfiles/starship.toml"
+        dest: "/home/{{ username }}/.config/starship.toml"
+        state: link
+        owner: "{{ username }}"
+        group: "{{ username }}"
