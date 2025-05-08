@@ -74,6 +74,8 @@ vim.opt.scrolloff = 10
 -- instead raise a dialog asking if you wish to save the current file(s)
 -- See `:help 'confirm'`
 vim.opt.confirm = true
+vim.opt.shiftwidth = 4
+vim.opt.tabstop = 4
 
 -- [[ Basic Keymaps ]]
 --  See `:help vim.keymap.set()`
@@ -167,7 +169,7 @@ require("lazy").setup({
 	--
 	-- require 'kickstart.plugins.debug',
 	require("kickstart.plugins.indent_line"),
-	-- require 'kickstart.plugins.lint',
+	require("kickstart.plugins.lint"),
 	require("kickstart.plugins.autopairs"),
 	-- require 'kickstart.plugins.neo-tree',
 	-- require 'kickstart.plugins.gitsigns', -- adds gitsigns recommend keymaps
