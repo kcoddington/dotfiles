@@ -103,6 +103,7 @@ source $ZSH/oh-my-zsh.sh
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 alias vim="nvim"
+alias v="nvim"
 export PATH="/opt/homebrew/opt/libpq/bin:$PATH:/Users/kevin/.local/opt/go/bin"
 
 . "$HOME/.local/bin/env"

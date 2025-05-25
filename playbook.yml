@@ -20,11 +20,13 @@
         shell: "/bin/{{ shell }}"
 
     - name: touch sudoers.d user file
+      when: ansible_facts.os_family != 'macos'
       ansible.builtin.file:
         path: "/etc/sudoers.d/{{ username }}"
         state: touch
 
     - name: add user to sudoers
+      when: ansible_facts.os_family != 'macos'
       ansible.builtin.lineinfile:
         path: "/etc/sudoers.d/{{ username }}"
         line: "{{ username }} ALL=(ALL) NOPASSWD:ALL"
